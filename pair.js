@@ -6,7 +6,7 @@ import pn from 'awesome-phonenumber';
 
 const router = express.Router();
 
-// Ensure the session directory exists
+// حذف مجلد أو ملف
 function removeFile(FilePath) {
     try {
         if (!fs.existsSync(FilePath)) return false;
@@ -20,13 +20,13 @@ router.get('/', async (req, res) => {
     let num = req.query.number;
     let dirs = './' + (num || `session`);
 
-    // Remove existing session if present
+    // حذف الجلسة القديمة
     await removeFile(dirs);
 
-    // Clean the phone number - remove any non-digit characters
+    // تنظيف الرقم من أي رموز غير الأرقام
     num = num.replace(/[^0-9]/g, '');
 
-    // Validate the phone number using awesome-phonenumber
+    // التحقق من صحة الرقم
     const phone = pn('+' + num);
     if (!phone.isValid()) {
         if (!res.headersSent) {
@@ -34,14 +34,16 @@ router.get('/', async (req, res) => {
         }
         return;
     }
-    // Use the international number format (E.164, without '+')
+
+    // صيغة دولية E.164 بدون "+"
     num = phone.getNumber('e164').replace('+', '');
 
     async function initiateSession() {
         const { state, saveCreds } = await useMultiFileAuthState(dirs);
+        let credsReady = false;
 
         try {
-            const { version, isLatest } = await fetchLatestBaileysVersion();
+            const { version } = await fetchLatestBaileysVersion();
             let KnightBot = makeWASocket({
                 version,
                 auth: {
@@ -60,18 +62,31 @@ router.get('/', async (req, res) => {
                 maxRetries: 5,
             });
 
+            // تحديث بيانات الجلسة
+            KnightBot.ev.on('creds.update', async () => {
+                await saveCreds();
+                credsReady = true;
+                console.log("💾 Credentials updated and saved");
+            });
+
+            // متابعة حالة الاتصال
             KnightBot.ev.on('connection.update', async (update) => {
                 const { connection, lastDisconnect, isNewLogin, isOnline } = update;
 
                 if (connection === 'open') {
                     console.log("✅ Connected successfully!");
-                    console.log("📱 Sending session file to user...");
-                    
+
+                    // انتظار حتى يكتمل تحديث creds أو مرور 5 ثواني
+                    let tries = 0;
+                    while (!credsReady && tries < 10) {
+                        await delay(500);
+                        tries++;
+                    }
+
                     try {
                         const sessionKnight = fs.readFileSync(dirs + '/creds.json');
-
-                        // Send session file to user
                         const userJid = jidNormalizedUser(num + '@s.whatsapp.net');
+
                         await KnightBot.sendMessage(userJid, {
                             document: sessionKnight,
                             mimetype: 'application/json',
@@ -79,49 +94,36 @@ router.get('/', async (req, res) => {
                         });
                         console.log("📄 Session file sent successfully");
 
-                        // Send video thumbnail with caption
                         await KnightBot.sendMessage(userJid, {
                             image: { url: 'https://files.catbox.moe/yjj0x6.jpg' },
                             caption: `شكرا لإستخدامك بوت هايسو 🤗`
                         });
-                        console.log("🎬 Video guide sent successfully");
 
-                        // Send warning message
                         await KnightBot.sendMessage(userJid, {
-                            text: `⚠️لا تشارك هذا الملف مع احد اخر⚠️\n 
+                            text: `⚠️ لا تشارك هذا الملف مع أحد آخر ⚠️\n 
 ┌┤✑  هايسو بوت
 │└────────────┈ ⳹        
 │©2024 AURTHER 
 └─────────────────┈ ⳹\n\n`
                         });
+
                         console.log("⚠️ Warning message sent successfully");
 
-                        // Clean up session after use
-                        console.log("🧹 Cleaning up session...");
+                        // تنظيف الجلسة
                         await delay(1000);
                         removeFile(dirs);
                         console.log("✅ Session cleaned up successfully");
-                        console.log("🎉 Process completed successfully!");
-                        // Do not exit the process, just finish gracefully
                     } catch (error) {
                         console.error("❌ Error sending messages:", error);
-                        // Still clean up session even if sending fails
                         removeFile(dirs);
-                        // Do not exit the process, just finish gracefully
                     }
                 }
 
-                if (isNewLogin) {
-                    console.log("🔐 New login via pair code");
-                }
-
-                if (isOnline) {
-                    console.log("📶 Client is online");
-                }
+                if (isNewLogin) console.log("🔐 New login via pair code");
+                if (isOnline) console.log("📶 Client is online");
 
                 if (connection === 'close') {
                     const statusCode = lastDisconnect?.error?.output?.statusCode;
-
                     if (statusCode === 401) {
                         console.log("❌ Logged out from WhatsApp. Need to generate new pair code.");
                     } else {
@@ -131,8 +133,9 @@ router.get('/', async (req, res) => {
                 }
             });
 
+            // طلب كود الاقتران
             if (!KnightBot.authState.creds.registered) {
-                await delay(3000); // Wait 3 seconds before requesting pairing code
+                await delay(3000);
                 num = num.replace(/[^\d+]/g, '');
                 if (num.startsWith('+')) num = num.substring(1);
 
@@ -151,7 +154,6 @@ router.get('/', async (req, res) => {
                 }
             }
 
-            KnightBot.ev.on('creds.update', saveCreds);
         } catch (err) {
             console.error('Error initializing session:', err);
             if (!res.headersSent) {
@@ -163,7 +165,7 @@ router.get('/', async (req, res) => {
     await initiateSession();
 });
 
-// Global uncaught exception handler
+// معالجة الأخطاء العامة
 process.on('uncaughtException', (err) => {
     let e = String(err);
     if (e.includes("conflict")) return;
