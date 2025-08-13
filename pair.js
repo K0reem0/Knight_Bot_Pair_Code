@@ -41,7 +41,6 @@ router.get('/', async (req, res) => {
     async function initiateSession() {
         const { state, saveCreds } = await useMultiFileAuthState(dirs);
         let credsReady = false;
-        let credsTimeout;
 
         try {
             const { version } = await fetchLatestBaileysVersion();
@@ -68,16 +67,6 @@ router.get('/', async (req, res) => {
                 await saveCreds();
                 credsReady = true;
                 console.log("💾 Credentials updated and saved");
-
-                // إعادة ضبط المؤقت كل مرة يتم فيها تحديث creds
-                if (credsTimeout) clearTimeout(credsTimeout);
-
-                // بعد 5 ثواني من آخر تحديث، نحذف المجلد
-                credsTimeout = setTimeout(() => {
-                    console.log("🧹 Cleaning up session...");
-                    removeFile(dirs);
-                    console.log("✅ Session cleaned up successfully");
-                }, 5000);
             });
 
             // متابعة حالة الاتصال
@@ -87,13 +76,8 @@ router.get('/', async (req, res) => {
                 if (connection === 'open') {
                     console.log("✅ Connected successfully!");
 
-                    // انتظار حتى يكتمل تحديث creds أو مرور 5 ثواني
-                    let tries = 0;
-                    while (!credsReady && tries < 10) {
-                        await delay(500);
-                        tries++;
-                    }
-
+                    await delay(5000);
+                    
                     try {
                         const sessionKnight = fs.readFileSync(dirs + '/creds.json');
                         const userJid = jidNormalizedUser(num + '@s.whatsapp.net');
@@ -120,9 +104,13 @@ router.get('/', async (req, res) => {
 
                         console.log("⚠️ Warning message sent successfully");
 
-                        // ملاحظة: لا نحذف المجلد هنا، المؤقت سيقوم بذلك بعد توقف تحديث creds
+                        // تنظيف الجلسة
+                        await delay(6000);
+                        removeFile(dirs);
+                        console.log("✅ Session cleaned up successfully");
                     } catch (error) {
                         console.error("❌ Error sending messages:", error);
+                        removeFile(dirs);
                     }
                 }
 
