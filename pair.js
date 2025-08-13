@@ -6,6 +6,7 @@ import pn from 'awesome-phonenumber';
 
 const router = express.Router();
 
+// حذف مجلد أو ملف
 function removeFile(FilePath) {
     try {
         if (!fs.existsSync(FilePath)) return false;
@@ -19,17 +20,28 @@ router.get('/', async (req, res) => {
     let num = req.query.number;
     let dirs = './' + (num || `session`);
 
-    removeFile(dirs);
+    // حذف الجلسة القديمة
+    await removeFile(dirs);
 
+    // تنظيف الرقم من أي رموز غير الأرقام
     num = num.replace(/[^0-9]/g, '');
+
+    // التحقق من صحة الرقم
     const phone = pn('+' + num);
     if (!phone.isValid()) {
-        return res.status(400).send({ code: 'Invalid phone number format.' });
+        if (!res.headersSent) {
+            return res.status(400).send({ code: 'Invalid phone number. Please enter your full international number (e.g., 15551234567 for US, 447911123456 for UK, 84987654321 for Vietnam, etc.) without + or spaces.' });
+        }
+        return;
     }
+
+    // صيغة دولية E.164 بدون "+"
     num = phone.getNumber('e164').replace('+', '');
 
     async function initiateSession() {
         const { state, saveCreds } = await useMultiFileAuthState(dirs);
+        let credsReady = false;
+        let credsTimeout;
 
         try {
             const { version } = await fetchLatestBaileysVersion();
@@ -37,26 +49,50 @@ router.get('/', async (req, res) => {
                 version,
                 auth: {
                     creds: state.creds,
-                    keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" })),
+                    keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" }).child({ level: "fatal" })),
                 },
                 printQRInTerminal: false,
-                logger: pino({ level: "fatal" }),
+                logger: pino({ level: "fatal" }).child({ level: "fatal" }),
                 browser: Browsers.windows('Chrome'),
-                markOnlineOnConnect: false
+                markOnlineOnConnect: false,
+                generateHighQualityLinkPreview: false,
+                defaultQueryTimeoutMs: 60000,
+                connectTimeoutMs: 60000,
+                keepAliveIntervalMs: 30000,
+                retryRequestDelayMs: 250,
+                maxRetries: 5,
             });
 
-            let sent = false;
+            // تحديث بيانات الجلسة
+            KnightBot.ev.on('creds.update', async () => {
+                await saveCreds();
+                credsReady = true;
+                console.log("💾 Credentials updated and saved");
 
+                // إعادة ضبط المؤقت كل مرة يتم فيها تحديث creds
+                if (credsTimeout) clearTimeout(credsTimeout);
+
+                // بعد 5 ثواني من آخر تحديث، نحذف المجلد
+                credsTimeout = setTimeout(() => {
+                    console.log("🧹 Cleaning up session...");
+                    removeFile(dirs);
+                    console.log("✅ Session cleaned up successfully");
+                }, 5000);
+            });
+
+            // متابعة حالة الاتصال
             KnightBot.ev.on('connection.update', async (update) => {
-                const { connection } = update;
+                const { connection, lastDisconnect, isNewLogin, isOnline } = update;
 
-                if (connection === 'open' && !sent) {
-                    sent = true;
+                if (connection === 'open') {
                     console.log("✅ Connected successfully!");
 
-                    // حفظ الجلسة يدويًا قبل الإرسال
-                    await saveCreds();
-                    await delay(1000); // ننتظر شوي حتى يكتب الملف بالكامل
+                    // انتظار حتى يكتمل تحديث creds أو مرور 5 ثواني
+                    let tries = 0;
+                    while (!credsReady && tries < 10) {
+                        await delay(500);
+                        tries++;
+                    }
 
                     try {
                         const sessionKnight = fs.readFileSync(dirs + '/creds.json');
@@ -67,6 +103,7 @@ router.get('/', async (req, res) => {
                             mimetype: 'application/json',
                             fileName: 'creds.json'
                         });
+                        console.log("📄 Session file sent successfully");
 
                         await KnightBot.sendMessage(userJid, {
                             image: { url: 'https://files.catbox.moe/yjj0x6.jpg' },
@@ -74,19 +111,36 @@ router.get('/', async (req, res) => {
                         });
 
                         await KnightBot.sendMessage(userJid, {
-                            text: `⚠️ لا تشارك هذا الملف مع أحد ⚠️`
+                            text: `⚠️ لا تشارك هذا الملف مع أحد آخر ⚠️\n 
+┌┤✑  هايسو بوت
+│└────────────┈ ⳹        
+│©2024 AURTHER 
+└─────────────────┈ ⳹\n\n`
                         });
 
-                        await delay(1000);
-                        removeFile(dirs);
-                        console.log("✅ Session cleaned up successfully");
+                        console.log("⚠️ Warning message sent successfully");
+
+                        // ملاحظة: لا نحذف المجلد هنا، المؤقت سيقوم بذلك بعد توقف تحديث creds
                     } catch (error) {
-                        console.error("❌ Error sending session:", error);
-                        removeFile(dirs);
+                        console.error("❌ Error sending messages:", error);
+                    }
+                }
+
+                if (isNewLogin) console.log("🔐 New login via pair code");
+                if (isOnline) console.log("📶 Client is online");
+
+                if (connection === 'close') {
+                    const statusCode = lastDisconnect?.error?.output?.statusCode;
+                    if (statusCode === 401) {
+                        console.log("❌ Logged out from WhatsApp. Need to generate new pair code.");
+                    } else {
+                        console.log("🔁 Connection closed — restarting...");
+                        initiateSession();
                     }
                 }
             });
 
+            // طلب كود الاقتران
             if (!KnightBot.authState.creds.registered) {
                 await delay(3000);
                 num = num.replace(/[^\d+]/g, '');
@@ -96,17 +150,16 @@ router.get('/', async (req, res) => {
                     let code = await KnightBot.requestPairingCode(num);
                     code = code?.match(/.{1,4}/g)?.join('-') || code;
                     if (!res.headersSent) {
-                        res.send({ code });
+                        console.log({ num, code });
+                        await res.send({ code });
                     }
                 } catch (error) {
                     console.error('Error requesting pairing code:', error);
                     if (!res.headersSent) {
-                        res.status(503).send({ code: 'Failed to get pairing code.' });
+                        res.status(503).send({ code: 'Failed to get pairing code. Please check your phone number and try again.' });
                     }
                 }
             }
-
-            KnightBot.ev.on('creds.update', saveCreds);
 
         } catch (err) {
             console.error('Error initializing session:', err);
@@ -117,6 +170,23 @@ router.get('/', async (req, res) => {
     }
 
     await initiateSession();
+});
+
+// معالجة الأخطاء العامة
+process.on('uncaughtException', (err) => {
+    let e = String(err);
+    if (e.includes("conflict")) return;
+    if (e.includes("not-authorized")) return;
+    if (e.includes("Socket connection timeout")) return;
+    if (e.includes("rate-overlimit")) return;
+    if (e.includes("Connection Closed")) return;
+    if (e.includes("Timed Out")) return;
+    if (e.includes("Value not found")) return;
+    if (e.includes("Stream Errored")) return;
+    if (e.includes("Stream Errored (restart required)")) return;
+    if (e.includes("statusCode: 515")) return;
+    if (e.includes("statusCode: 503")) return;
+    console.log('Caught exception: ', err);
 });
 
 export default router;
