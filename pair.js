@@ -49,25 +49,18 @@ async function pushToGitHub(sessionData, phoneNumber) {
             await git.addRemote('origin', remoteUrl);
         }
         
-        // --- التغييرات هنا ---
-        // Forcefully fetch remote and reset local to match the remote state
-        await git.fetch('origin', 'main'); // أو 'master' حسب اسم الفرع الرئيسي
-        await git.reset(['--hard', 'origin/main']); // أو 'origin/master'
-        // --- نهاية التغييرات ---
+        // --- التغيير هنا: استخدام 'master' بدلاً من 'main' ---
+        await git.fetch('origin', 'master');
+        await git.reset(['--hard', 'origin/master']);
+        // ----------------------------------------------------
         
-        // Now the local repository is clean and up-to-date with the remote
-        // We can now safely add and commit the session data
-
-        // Create session directory if it doesn't exist
         if (!fs.existsSync(SESSION_FOLDER)) {
             fs.mkdirSync(SESSION_FOLDER);
         }
         
-        // Save session file
         const fileName = `${SESSION_FOLDER}/${phoneNumber}_creds.json`;
         fs.writeFileSync(fileName, sessionData);
         
-        // Add the new session file
         await git.add('.');
         await git.commit(`Added session for ${phoneNumber}`);
         await git.push('origin', 'HEAD');
