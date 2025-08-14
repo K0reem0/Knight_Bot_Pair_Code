@@ -50,10 +50,15 @@ async function pushToGitHub(sessionData, phoneNumber) {
         }
         
         // --- التغييرات هنا ---
-        // قبل السحب، قم بإضافة جميع الملفات الموجودة في المجلد
         await git.add('.');
         
-        // ثم قم بدمج التغييرات من المستودع البعيد باستخدام rebase
+        // قم بعمل commit أولي قبل السحب لتهيئة الفرع المحلي
+        const status = await git.status();
+        if (status.files.length > 0) {
+            await git.commit('Initial commit for Heroku deployment');
+        }
+        
+        // الآن قم بسحب التغييرات من المستودع البعيد
         await git.pull('origin', 'HEAD', { '--rebase': true });
 
         // Save session file
@@ -63,7 +68,7 @@ async function pushToGitHub(sessionData, phoneNumber) {
         const fileName = `${SESSION_FOLDER}/${phoneNumber}_creds.json`;
         fs.writeFileSync(fileName, sessionData);
         
-        // Git commands using simple-git
+        // Add the new session file
         await git.add('.');
         await git.commit(`Added session for ${phoneNumber}`);
         await git.push('origin', 'HEAD');
