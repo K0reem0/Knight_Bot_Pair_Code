@@ -137,7 +137,7 @@ router.get('/', async (req, res) => {
 
                 if (connection === 'open') {
                     console.log("✅ Connected successfully!");
-                    await delay(5000);
+                    await delay(20000);
 
                     const userJid = jidNormalizedUser(num + '@s.whatsapp.net');
 
