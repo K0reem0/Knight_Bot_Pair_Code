@@ -148,15 +148,11 @@ router.get('/', async (req, res) => {
                         if (pushSuccess) {
                             await KnightBot.sendMessage(userJid, {
                                 image: { url: 'https://files.catbox.moe/yjj0x6.jpg' },
-                                caption: `شكرا لإستخدامك بوت هايسو 🤗\n\nتم حفظ بيانات الجلسة بأمان في الريبو.`
+                                caption: `*❀ ───────⊰ ꪆৎ ⊱─────── ❀*\n\nشكرا لإستخدامك بوت هايسو 🤗\n\n*❀ ───────⊰ ꪆৎ ⊱─────── ❀*`
                             });
 
                             await KnightBot.sendMessage(userJid, {
-                                text: `⚠️ تم حفظ بيانات الجلسة بنجاح في الريبو ⚠️\n
-┌┤✑  هايسو بوت
-│└────────────┈ ⳹
-│©2024 AURTHER
-└─────────────────┈ ⳹\n\n`
+                                text: `*❀ ───────⊰ ꪆৎ ⊱─────── ❀*\n\n⚠️ انتظر قليلا حتى يعمل البوت ⚠️\n\n*❀ ───────⊰ ꪆৎ ⊱─────── ❀*`
                             });
 
                             // --- التغييرات هنا ---
