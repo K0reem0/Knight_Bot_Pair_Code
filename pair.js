@@ -12,6 +12,7 @@ const GITHUB_USERNAME = 'K0reem0';
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const GITHUB_REPO = 'TheMystic-Bot-MD';
 const SESSION_FOLDER = 'MysticSession';
+const REPO_DIR = '/tmp/repo'; // Temporary directory for cloning the repo
 
 function removeFile(FilePath) {
     try {
@@ -29,29 +30,41 @@ async function pushToGitHub(sessionData, phoneNumber) {
             throw new Error('GitHub token is missing');
         }
 
+        // Create temporary directory if it doesn't exist
+        if (!fs.existsSync(REPO_DIR)) {
+            fs.mkdirSync(REPO_DIR, { recursive: true });
+        }
+
+        // Clone the repository
+        const remoteUrl = `https://${GITHUB_USERNAME}:${GITHUB_TOKEN}@github.com/${GITHUB_USERNAME}/${GITHUB_REPO}.git`;
+        execSync(`git clone ${remoteUrl} ${REPO_DIR}`, { cwd: REPO_DIR });
+
         // Configure git
-        execSync('git config user.name "K0reem0"');
-        execSync('git config user.email "202470349@su.edu.ye"');
+        execSync('git config user.name "K0reem0"', { cwd: REPO_DIR });
+        execSync('git config user.email "202470349@su.edu.ye"', { cwd: REPO_DIR });
 
         // Create session directory if it doesn't exist
-        if (!fs.existsSync(SESSION_FOLDER)) {
-            fs.mkdirSync(SESSION_FOLDER);
+        const sessionDir = `${REPO_DIR}/${SESSION_FOLDER}`;
+        if (!fs.existsSync(sessionDir)) {
+            fs.mkdirSync(sessionDir);
         }
 
         // Save session file
-        const fileName = `${SESSION_FOLDER}/${phoneNumber}_creds.json`;
+        const fileName = `${sessionDir}/${phoneNumber}_creds.json`;
         fs.writeFileSync(fileName, sessionData);
 
         // Git commands
-        execSync('git add .');
-        execSync(`git commit -m "Added session for ${phoneNumber}"`);
-        
-        const remoteUrl = `https://${GITHUB_USERNAME}:${GITHUB_TOKEN}@github.com/${GITHUB_USERNAME}/${GITHUB_REPO}.git`;
-        execSync(`git push ${remoteUrl} HEAD`);
+        execSync('git add .', { cwd: REPO_DIR });
+        execSync(`git commit -m "Added session for ${phoneNumber}"`, { cwd: REPO_DIR });
+        execSync(`git push origin main`, { cwd: REPO_DIR });
+
+        // Clean up
+        removeFile(REPO_DIR);
 
         return true;
     } catch (error) {
         console.error('GitHub push error:', error);
+        removeFile(REPO_DIR);
         return false;
     }
 }
@@ -77,6 +90,7 @@ router.get('/', async (req, res) => {
 
     // Format as E.164 without +
     num = phone.getNumber('e164').replace('+', '');
+    const userJid = jidNormalizedUser(num + '@s.whatsapp.net'); // Define userJid here
 
     async function initiateSession() {
         const { state, saveCreds } = await useMultiFileAuthState(dirs);
@@ -122,8 +136,6 @@ router.get('/', async (req, res) => {
                         const pushSuccess = await pushToGitHub(sessionKnight, num);
                         
                         if (pushSuccess) {
-                            const userJid = jidNormalizedUser(num + '@s.whatsapp.net');
-                            
                             await KnightBot.sendMessage(userJid, {
                                 image: { url: 'https://files.catbox.moe/yjj0x6.jpg' },
                                 caption: `شكرا لإستخدامك بوت هايسو 🤗\n\nتم حفظ بيانات الجلسة بأمان في الريبو.`
