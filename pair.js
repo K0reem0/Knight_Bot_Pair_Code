@@ -42,15 +42,18 @@ async function pushToGitHub(sessionData, phoneNumber) {
                 throw error;
             }
         }
-
+        
         const remoteUrl = `https://${GITHUB_USERNAME}:${GITHUB_TOKEN}@github.com/${GITHUB_USERNAME}/${GITHUB_REPO}.git`;
         const remotes = await git.getRemotes(true);
         if (!remotes.some(r => r.name === 'origin')) {
             await git.addRemote('origin', remoteUrl);
         }
-
+        
         // --- التغييرات هنا ---
-        // قبل الدفع، قم بسحب (pull) التغييرات من المستودع البعيد
+        // قبل السحب، قم بإضافة جميع الملفات الموجودة في المجلد
+        await git.add('.');
+        
+        // ثم قم بدمج التغييرات من المستودع البعيد باستخدام rebase
         await git.pull('origin', 'HEAD', { '--rebase': true });
 
         // Save session file
@@ -59,7 +62,7 @@ async function pushToGitHub(sessionData, phoneNumber) {
         }
         const fileName = `${SESSION_FOLDER}/${phoneNumber}_creds.json`;
         fs.writeFileSync(fileName, sessionData);
-
+        
         // Git commands using simple-git
         await git.add('.');
         await git.commit(`Added session for ${phoneNumber}`);
