@@ -12,6 +12,7 @@ const GITHUB_USERNAME = 'K0reem0';
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const GITHUB_REPO = 'TheMystic-Bot-MD';
 const SESSION_FOLDER = 'MysticSession';
+const BRANCH_NAME = 'master'; // أو 'master' حسب اسم فرعك الرئيسي
 
 function removeFile(FilePath) {
     try {
@@ -50,25 +51,32 @@ async function pushToGitHub(sessionData, phoneNumber) {
         }
         
         // Fetch and reset to remote state to avoid conflicts
-        await git.fetch('origin', 'master'); // أو 'master' حسب اسم فرعك
-        await git.reset(['--hard', 'origin/master']); // أو 'origin/master'
+        await git.fetch('origin', BRANCH_NAME);
+        await git.reset(['--hard', `origin/${BRANCH_NAME}`]);
         
         // Create session directory if it doesn't exist
         if (!fs.existsSync(SESSION_FOLDER)) {
             fs.mkdirSync(SESSION_FOLDER);
         }
         
-        // Save session file
-        const fileName = `${SESSION_FOLDER}/${phoneNumber}_creds.json`;
+        // --- التغييرات هنا ---
+        // 1. تحديد اسم الملف ليكون "MysticSession/creds.json"
+        const fileName = `${SESSION_FOLDER}/creds.json`;
+        
+        // 2. حذف ملف creds.json القديم إذا كان موجودًا
+        if (fs.existsSync(fileName)) {
+            removeFile(fileName);
+        }
+
+        // 3. كتابة ملف creds.json الجديد
         fs.writeFileSync(fileName, sessionData);
         
-        // --- التغيير هنا: إضافة ملف creds.json فقط ---
-        await git.add(fileName);
+        // 4. استخدام `git.add` مع الخيار `true` لتجاهل .gitignore
+        await git.add(fileName, true);
         
-        // Add the new session file
         await git.commit(`Added session for ${phoneNumber}`);
-        await git.push('origin', 'HEAD');
-        // --- نهاية التغيير ---
+        await git.push('origin', BRANCH_NAME);
+        // --- نهاية التغييرات ---
 
         return true;
     } catch (error) {
