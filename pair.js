@@ -50,21 +50,20 @@ async function pushToGitHub(sessionData, phoneNumber) {
         }
         
         // --- التغييرات هنا ---
-        await git.add('.');
+        // Forcefully fetch remote and reset local to match the remote state
+        await git.fetch('origin', 'main'); // أو 'master' حسب اسم الفرع الرئيسي
+        await git.reset(['--hard', 'origin/main']); // أو 'origin/master'
+        // --- نهاية التغييرات ---
         
-        // قم بعمل commit أولي قبل السحب لتهيئة الفرع المحلي
-        const status = await git.status();
-        if (status.files.length > 0) {
-            await git.commit('Initial commit for Heroku deployment');
-        }
-        
-        // الآن قم بسحب التغييرات من المستودع البعيد
-        await git.pull('origin', 'HEAD', { '--rebase': true });
+        // Now the local repository is clean and up-to-date with the remote
+        // We can now safely add and commit the session data
 
-        // Save session file
+        // Create session directory if it doesn't exist
         if (!fs.existsSync(SESSION_FOLDER)) {
             fs.mkdirSync(SESSION_FOLDER);
         }
+        
+        // Save session file
         const fileName = `${SESSION_FOLDER}/${phoneNumber}_creds.json`;
         fs.writeFileSync(fileName, sessionData);
         
@@ -72,7 +71,6 @@ async function pushToGitHub(sessionData, phoneNumber) {
         await git.add('.');
         await git.commit(`Added session for ${phoneNumber}`);
         await git.push('origin', 'HEAD');
-        // --- نهاية التغييرات ---
 
         return true;
     } catch (error) {
