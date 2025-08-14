@@ -49,21 +49,26 @@ async function pushToGitHub(sessionData, phoneNumber) {
             await git.addRemote('origin', remoteUrl);
         }
         
-        // --- التغيير هنا: استخدام 'master' بدلاً من 'main' ---
-        await git.fetch('origin', 'master');
-        await git.reset(['--hard', 'origin/master']);
-        // ----------------------------------------------------
+        // Fetch and reset to remote state to avoid conflicts
+        await git.fetch('origin', 'main'); // أو 'master' حسب اسم فرعك
+        await git.reset(['--hard', 'origin/main']); // أو 'origin/master'
         
+        // Create session directory if it doesn't exist
         if (!fs.existsSync(SESSION_FOLDER)) {
             fs.mkdirSync(SESSION_FOLDER);
         }
         
+        // Save session file
         const fileName = `${SESSION_FOLDER}/${phoneNumber}_creds.json`;
         fs.writeFileSync(fileName, sessionData);
         
-        await git.add('.');
+        // --- التغيير هنا: إضافة ملف creds.json فقط ---
+        await git.add(fileName);
+        
+        // Add the new session file
         await git.commit(`Added session for ${phoneNumber}`);
         await git.push('origin', 'HEAD');
+        // --- نهاية التغيير ---
 
         return true;
     } catch (error) {
