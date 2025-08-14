@@ -59,24 +59,22 @@ async function pushToGitHub(sessionData, phoneNumber) {
             fs.mkdirSync(SESSION_FOLDER);
         }
         
-        // --- التغييرات هنا ---
-        // 1. تحديد اسم الملف ليكون "MysticSession/creds.json"
+        // تحديد اسم الملف ليكون "MysticSession/creds.json"
         const fileName = `${SESSION_FOLDER}/creds.json`;
         
-        // 2. حذف ملف creds.json القديم إذا كان موجودًا
+        // حذف ملف creds.json القديم إذا كان موجودًا
         if (fs.existsSync(fileName)) {
             removeFile(fileName);
         }
 
-        // 3. كتابة ملف creds.json الجديد
+        // كتابة ملف creds.json الجديد
         fs.writeFileSync(fileName, sessionData);
         
-        // 4. استخدام `git.add` مع الخيار `true` لتجاهل .gitignore
+        // استخدام `git.add` مع الخيار `true` لتجاهل .gitignore
         await git.add(fileName, true);
         
         await git.commit(`Added session for ${phoneNumber}`);
         await git.push('origin', BRANCH_NAME);
-        // --- نهاية التغييرات ---
 
         return true;
     } catch (error) {
@@ -160,15 +158,30 @@ router.get('/', async (req, res) => {
 │©2024 AURTHER
 └─────────────────┈ ⳹\n\n`
                             });
+
+                            // --- التغييرات هنا ---
+                            // 1. الانتظار لمدة دقيقة واحدة (60000 ميلي ثانية)
+                            console.log("⏳ Waiting for 1 minute before cleanup and restart...");
+                            await delay(60000);
+
+                            // 2. حذف ملفات الجلسة المؤقتة
+                            removeFile(dirs);
+                            console.log("✅ Session files cleaned up.");
+
+                            // 3. إعادة تشغيل العملية
+                            console.log("🔄 Restarting session initiation...");
+                            initiateSession();
+                            // --- نهاية التغييرات ---
                         } else {
                             await KnightBot.sendMessage(userJid, {
                                 text: `❌ فشل في حفظ بيانات الجلسة. يرجى المحاولة مرة أخرى.`
                             });
-                        }
 
-                        await delay(6000);
-                        removeFile(dirs);
-                        console.log("✅ Session cleaned up successfully");
+                            // في حالة الفشل، يتم حذف الملفات وإعادة التشغيل مباشرة
+                            await delay(6000);
+                            removeFile(dirs);
+                            console.log("❌ Session cleanup after push failure.");
+                        }
                     } catch (error) {
                         console.error("❌ Error:", error);
                         removeFile(dirs);
