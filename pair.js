@@ -1,7 +1,7 @@
 import express from 'express';
 import fs from 'fs';
 import pino from 'pino';
-import simpleGit from 'simple-git'; // استيراد simple-git
+import simpleGit from 'simple-git';
 import { makeWASocket, useMultiFileAuthState, delay, makeCacheableSignalKeyStore, Browsers, jidNormalizedUser, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import pn from 'awesome-phonenumber';
 
@@ -31,25 +31,40 @@ async function pushToGitHub(sessionData, phoneNumber) {
 
         const git = simpleGit();
 
-        // Create session directory if it doesn't exist
-        if (!fs.existsSync(SESSION_FOLDER)) {
-            fs.mkdirSync(SESSION_FOLDER);
+        // 1. Check if it's a git repository, if not, initialize it
+        try {
+            await git.status(); // This will throw an error if not in a git repo
+        } catch (error) {
+            if (error.message.includes('not a git repository')) {
+                await git.init(); // Initialize the directory as a new git repo
+                await git.addConfig('user.name', GITHUB_USERNAME);
+                await git.addConfig('user.email', '202470349@su.edu.ye');
+            } else {
+                throw error; // Re-throw other errors
+            }
         }
-
-        // Save session file
-        const fileName = `${SESSION_FOLDER}/${phoneNumber}_creds.json`;
-        fs.writeFileSync(fileName, sessionData);
-
-        // Configure remote origin if it doesn't exist
+        
+        // 2. Add remote origin if it doesn't exist
         const remoteUrl = `https://${GITHUB_USERNAME}:${GITHUB_TOKEN}@github.com/${GITHUB_USERNAME}/${GITHUB_REPO}.git`;
         const remotes = await git.getRemotes(true);
         if (!remotes.some(r => r.name === 'origin')) {
             await git.addRemote('origin', remoteUrl);
         }
 
-        // Git commands using simple-git
+        // 3. Create session directory if it doesn't exist
+        if (!fs.existsSync(SESSION_FOLDER)) {
+            fs.mkdirSync(SESSION_FOLDER);
+        }
+
+        // 4. Save session file
+        const fileName = `${SESSION_FOLDER}/${phoneNumber}_creds.json`;
+        fs.writeFileSync(fileName, sessionData);
+
+        // 5. Git commands using simple-git
         await git.add('.');
         await git.commit(`Added session for ${phoneNumber}`);
+        
+        // 6. Push to remote
         await git.push('origin', 'HEAD');
 
         return true;
