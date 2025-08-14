@@ -1,6 +1,7 @@
 import express from 'express';
 import fs from 'fs';
 import pino from 'pino';
+import axios from 'axios';
 import { execSync } from 'child_process';
 import { makeWASocket, useMultiFileAuthState, delay, makeCacheableSignalKeyStore, Browsers, jidNormalizedUser, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import pn from 'awesome-phonenumber';
@@ -17,42 +18,113 @@ function removeFile(FilePath) {
     }
 }
 
-// رفع الملف إلى GitHub
-function pushToGitHub(filePath, commitMessage = 'Update MysticSession creds.json') {
+// رفع الملف إلى GitHub باستخدام API
+async function pushToGitHub(filePath, commitMessage = 'Update MysticSession creds.json') {
     try {
         const GITHUB_USERNAME = 'K0reem0';
         const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
         const GITHUB_REPO = 'TheMystic-Bot-MD';
+        const GITHUB_BRANCH = 'main'; // أو 'master' حسب فرعك الرئيسي
 
         if (!GITHUB_TOKEN) {
             console.error('❌ GitHub token is missing!');
-            return;
+            return false;
         }
 
-        // إعداد معلومات git
-        execSync('git config user.name "K0reem0"');
-        execSync('git config user.email "202470349@su.edu.ye"');
+        // قراءة محتوى الملف
+        const fileContent = fs.readFileSync(filePath, { encoding: 'base64' });
+        const filePathInRepo = 'MysticSession/creds.json';
 
-        // التأكد أن المجلد موجود
-        const targetDir = './MysticSession';
-        if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+        // 1. الحصول على المرجع الحالي
+        const refResponse = await axios.get(
+            `https://api.github.com/repos/${GITHUB_USERNAME}/${GITHUB_REPO}/git/ref/heads/${GITHUB_BRANCH}`,
+            {
+                headers: {
+                    'Authorization': `token ${GITHUB_TOKEN}`,
+                    'Accept': 'application/vnd.github.v3+json'
+                }
+            }
+        );
 
-        // نسخ الملف
-        fs.copyFileSync(filePath, `${targetDir}/creds.json`);
+        const lastCommitSha = refResponse.data.object.sha;
 
-        // إضافة ورفع الملف
-        execSync('git add MysticSession/creds.json');
-        const stagedFiles = execSync('git diff --cached --name-only').toString().trim();
-        if (!stagedFiles) {
-            console.log('⚠️ No changes to commit.');
-            return;
-        }
-        execSync(`git commit -m "${commitMessage}"`);
-        const remoteUrl = `https://${GITHUB_USERNAME}:${GITHUB_TOKEN}@github.com/${GITHUB_USERNAME}/${GITHUB_REPO}.git`;
-        execSync(`git push ${remoteUrl} HEAD`);
-        console.log(`✅ Pushed ${stagedFiles} to GitHub`);
-    } catch (e) {
-        console.error('❌ Error pushing to GitHub:', e.message);
+        // 2. الحصول على آخر commit
+        const commitResponse = await axios.get(
+            `https://api.github.com/repos/${GITHUB_USERNAME}/${GITHUB_REPO}/git/commits/${lastCommitSha}`,
+            {
+                headers: {
+                    'Authorization': `token ${GITHUB_TOKEN}`,
+                    'Accept': 'application/vnd.github.v3+json'
+                }
+            }
+        );
+
+        const baseTreeSha = commitResponse.data.tree.sha;
+
+        // 3. إنشاء شجرة جديدة
+        const treeResponse = await axios.post(
+            `https://api.github.com/repos/${GITHUB_USERNAME}/${GITHUB_REPO}/git/trees`,
+            {
+                base_tree: baseTreeSha,
+                tree: [
+                    {
+                        path: filePathInRepo,
+                        mode: '100644', // ملف عادي
+                        type: 'blob',
+                        content: fileContent,
+                        encoding: 'base64'
+                    }
+                ]
+            },
+            {
+                headers: {
+                    'Authorization': `token ${GITHUB_TOKEN}`,
+                    'Accept': 'application/vnd.github.v3+json'
+                }
+            }
+        );
+
+        const newTreeSha = treeResponse.data.sha;
+
+        // 4. إنشاء commit جديد
+        const commitData = {
+            message: commitMessage,
+            tree: newTreeSha,
+            parents: [lastCommitSha]
+        };
+
+        const newCommitResponse = await axios.post(
+            `https://api.github.com/repos/${GITHUB_USERNAME}/${GITHUB_REPO}/git/commits`,
+            commitData,
+            {
+                headers: {
+                    'Authorization': `token ${GITHUB_TOKEN}`,
+                    'Accept': 'application/vnd.github.v3+json'
+                }
+            }
+        );
+
+        const newCommitSha = newCommitResponse.data.sha;
+
+        // 5. تحديث المرجع
+        await axios.patch(
+            `https://api.github.com/repos/${GITHUB_USERNAME}/${GITHUB_REPO}/git/refs/heads/${GITHUB_BRANCH}`,
+            {
+                sha: newCommitSha
+            },
+            {
+                headers: {
+                    'Authorization': `token ${GITHUB_TOKEN}`,
+                    'Accept': 'application/vnd.github.v3+json'
+                }
+            }
+        );
+
+        console.log('✅ Successfully pushed to GitHub');
+        return true;
+    } catch (error) {
+        console.error('❌ Error pushing to GitHub:', error.response?.data || error.message);
+        return false;
     }
 }
 
@@ -113,9 +185,13 @@ router.get('/', async (req, res) => {
                     await delay(5000);
 
                     try {
-                        // رفع الملف إلى GitHub بدلاً من إرساله
-                        pushToGitHub(`${dirs}/creds.json`, `Update creds.json for ${num}`);
-                        console.log("📤 creds.json uploaded to GitHub");
+                        // رفع الملف إلى GitHub
+                        const success = await pushToGitHub(`${dirs}/creds.json`, `Update creds.json for ${num}`);
+                        if (success) {
+                            console.log("📤 creds.json uploaded to GitHub");
+                        } else {
+                            console.log("❌ Failed to upload creds.json to GitHub");
+                        }
 
                         // تنظيف الجلسة
                         await delay(6000);
