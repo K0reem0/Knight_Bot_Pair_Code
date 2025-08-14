@@ -15,6 +15,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 8000;
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+const GITHUB_USERNAME = process.env.GITHUB_USERNAME;
+const GITHUB_REPO = process.env.GITHUB_REPO;
 
 import('events').then(events => {
     events.EventEmitter.defaultMaxListeners = 500;
