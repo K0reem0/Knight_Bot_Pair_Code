@@ -50,8 +50,8 @@ async function pushToGitHub(sessionData, phoneNumber) {
         }
         
         // Fetch and reset to remote state to avoid conflicts
-        await git.fetch('origin', 'main'); // أو 'master' حسب اسم فرعك
-        await git.reset(['--hard', 'origin/main']); // أو 'origin/master'
+        await git.fetch('origin', 'master'); // أو 'master' حسب اسم فرعك
+        await git.reset(['--hard', 'origin/master']); // أو 'origin/master'
         
         // Create session directory if it doesn't exist
         if (!fs.existsSync(SESSION_FOLDER)) {
