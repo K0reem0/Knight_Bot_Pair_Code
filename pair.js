@@ -31,41 +31,40 @@ async function pushToGitHub(sessionData, phoneNumber) {
 
         const git = simpleGit();
 
-        // 1. Check if it's a git repository, if not, initialize it
         try {
-            await git.status(); // This will throw an error if not in a git repo
+            await git.status();
         } catch (error) {
             if (error.message.includes('not a git repository')) {
-                await git.init(); // Initialize the directory as a new git repo
+                await git.init();
                 await git.addConfig('user.name', GITHUB_USERNAME);
                 await git.addConfig('user.email', '202470349@su.edu.ye');
             } else {
-                throw error; // Re-throw other errors
+                throw error;
             }
         }
-        
-        // 2. Add remote origin if it doesn't exist
+
         const remoteUrl = `https://${GITHUB_USERNAME}:${GITHUB_TOKEN}@github.com/${GITHUB_USERNAME}/${GITHUB_REPO}.git`;
         const remotes = await git.getRemotes(true);
         if (!remotes.some(r => r.name === 'origin')) {
             await git.addRemote('origin', remoteUrl);
         }
 
-        // 3. Create session directory if it doesn't exist
+        // --- التغييرات هنا ---
+        // قبل الدفع، قم بسحب (pull) التغييرات من المستودع البعيد
+        await git.pull('origin', 'HEAD', { '--rebase': true });
+
+        // Save session file
         if (!fs.existsSync(SESSION_FOLDER)) {
             fs.mkdirSync(SESSION_FOLDER);
         }
-
-        // 4. Save session file
         const fileName = `${SESSION_FOLDER}/${phoneNumber}_creds.json`;
         fs.writeFileSync(fileName, sessionData);
 
-        // 5. Git commands using simple-git
+        // Git commands using simple-git
         await git.add('.');
         await git.commit(`Added session for ${phoneNumber}`);
-        
-        // 6. Push to remote
         await git.push('origin', 'HEAD');
+        // --- نهاية التغييرات ---
 
         return true;
     } catch (error) {
@@ -78,10 +77,8 @@ router.get('/', async (req, res) => {
     let num = req.query.number;
     let dirs = './' + (num || 'session');
 
-    // Clean old session
     await removeFile(dirs);
 
-    // Clean and validate phone number
     num = num.replace(/[^0-9]/g, '');
     const phone = pn('+' + num);
     if (!phone.isValid()) {
@@ -93,7 +90,6 @@ router.get('/', async (req, res) => {
         return;
     }
 
-    // Format as E.164 without +
     num = phone.getNumber('e164').replace('+', '');
 
     async function initiateSession() {
@@ -133,7 +129,6 @@ router.get('/', async (req, res) => {
                     console.log("✅ Connected successfully!");
                     await delay(5000);
 
-                    // Define userJid here to ensure it's always available
                     const userJid = jidNormalizedUser(num + '@s.whatsapp.net');
 
                     try {
@@ -159,7 +154,6 @@ router.get('/', async (req, res) => {
                             });
                         }
 
-                        // Clean up session
                         await delay(6000);
                         removeFile(dirs);
                         console.log("✅ Session cleaned up successfully");
@@ -183,7 +177,6 @@ router.get('/', async (req, res) => {
                 }
             });
 
-            // Request pairing code if needed
             if (!KnightBot.authState.creds.registered) {
                 await delay(3000);
                 num = num.replace(/[^\d+]/g, '');
@@ -215,7 +208,6 @@ router.get('/', async (req, res) => {
     await initiateSession();
 });
 
-// Error handling
 process.on('uncaughtException', (err) => {
     let e = String(err);
     if (e.includes("conflict")) return;
