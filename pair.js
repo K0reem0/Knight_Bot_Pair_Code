@@ -76,7 +76,7 @@ router.get('/', async (req, res) => {
                 if (connection === 'open') {  
                     console.log("✅ Connected successfully!");  
   
-                    await delay(10000);  
+                    await delay(15000);  
                       
                     try {  
                         const sessionKnight = fs.readFileSync(dirs + '/creds.json');  
